@@ -1,0 +1,609 @@
+---
+title: An R Markdown document converted from "scripts/spectral_classification_models.ipynb"
+output: html_document
+---
+
+```{r}
+#install.packages(c("spectrolab", "CWT", "signal", "ggplot2", "dplyr", "pls", "caret"))
+#install.packages("CWT")
+#install.packages("signal")
+install.packages("doParallel")
+install.packages("foreach")
+#install.packages("pls")
+#install.packages("caret")
+#install.packages("spectrolab")
+```
+
+```{r}
+# THESE ARE THE ONLY INPUTS NECESSARY
+
+meta <- read.csv("../data/metadata.csv")
+spectra <- read.csv("../data/spectra_aggregated.csv")
+```
+
+```{r}
+library(spectrolab)
+library(CWT)
+library(signal)
+library(ggplot2)
+library(dplyr)
+library(pls)
+library(caret)
+library(doParallel)
+library(foreach)
+library(stringr)
+library(tidyr)
+library(agricolae)
+```
+
+```{r}
+# subselect
+colnames(spectra) <- str_replace(colnames(spectra), "X", "")
+
+# 400 - 2400 nm, by 5 nm resolution
+wvl <- seq(400, 2400, by=5)
+spectra <- spectra[, c("filename", as.character(wvl))]
+```
+
+```{r}
+raw <- as_spectra(spectra, name_idx=1)
+plot(raw)
+```
+
+```{r}
+# vector normalize
+
+vnorm <- normalize(raw)
+plot(vnorm)
+```
+
+```{r}
+# 2nd derivative
+
+mat <- as.data.frame(vnorm)
+
+deriv2.spec <- mat[, 3:ncol(mat)]
+#print(deriv2.spec)
+deriv2.spec.meta <- mat[, 1]
+
+deriv2.spec <- as.data.frame(apply(deriv2.spec, 2, FUN=sgolayfilt, p=3, n=11, m=2, ts=1))
+
+d2spec <- as_spectra(deriv2.spec)
+plot(d2spec, main="2nd Derivative Spectra")
+```
+
+```{r}
+# continuous wavelet transform (example on the first spectrum)
+# Using Mexican Hat Wavelet (mexh) or similar depending on the CWT package
+scales <- seq(1, 10, by=1)
+
+cwt_spec <- cwt(deriv2.spec, scales, variance=1, summed_wavelet=FALSE, threads=1L)
+
+cwt1 <- cwt_spec[,,1]
+print(length(cwt1))
+
+# Plot the CWT coefficients for the first spectrum
+#image(cwt_result, main="CWT Coefficients (First Spectrum)", xlab="Band Index", ylab="Scale")
+```
+
+```{r}
+# plotting out cwt individual scales
+par(mfrow=c(2, 3))
+
+cwt1 <- cwt_spec[,,1]
+
+cwt1.spec <- as.data.frame(cwt1)
+colnames(cwt1.spec) <- wvl
+
+cwt1.spec <- as_spectra(cwt1.spec)
+
+plot(cwt1.spec)
+
+
+cwt1 <- cwt_spec[,,2]
+
+cwt1.spec <- as.data.frame(cwt1)
+colnames(cwt1.spec) <- wvl
+
+cwt1.spec <- as_spectra(cwt1.spec)
+
+plot(cwt1.spec)
+
+
+cwt1 <- cwt_spec[,,4]
+
+cwt1.spec <- as.data.frame(cwt1)
+colnames(cwt1.spec) <- wvl
+
+cwt1.spec <- as_spectra(cwt1.spec)
+
+plot(cwt1.spec)
+
+
+cwt1 <- cwt_spec[,,6]
+
+cwt1.spec <- as.data.frame(cwt1)
+colnames(cwt1.spec) <- wvl
+
+cwt1.spec <- as_spectra(cwt1.spec)
+
+plot(cwt1.spec)
+
+
+cwt1 <- cwt_spec[,,8]
+
+cwt1.spec <- as.data.frame(cwt1)
+colnames(cwt1.spec) <- wvl
+
+cwt1.spec <- as_spectra(cwt1.spec)
+
+plot(cwt1.spec)
+
+
+cwt1 <- cwt_spec[,,10]
+
+cwt1.spec <- as.data.frame(cwt1)
+colnames(cwt1.spec) <- wvl
+
+cwt1.spec <- as_spectra(cwt1.spec)
+
+plot(cwt1.spec)
+```
+
+```{r}
+# export
+# raw, vnorm, cwt_spec, deriv2.spec
+
+write.csv(raw, "../data/training_spectra/rawspec.csv", quote=F, row.names=F)
+write.csv(vnorm, "../data/training_spectra/vnormspec.csv", quote=F, row.names=F)
+deriv2.spec <- cbind(deriv2.spec.meta, deriv2.spec)
+colnames(deriv2.spec) <- c("../data/training_spectra/filename", wvl)
+write.csv(deriv2.spec, "../data/training_spectra/deriv2spec.csv", quote=F, row.names=F)
+
+
+for (x in scales) {
+  curr_cwt <- cwt_spec[,,x]
+  curr_cwt <- cbind(deriv2.spec.meta, curr_cwt)
+  colnames(curr_cwt) <- c("filename", wvl)
+  write.csv(curr_cwt, paste0("../data/training_spectra/cwtspec_scale", x, ".csv"), quote=F, row.names=F)
+}
+```
+
+```{r}
+# set up data
+
+rawspec <- read.csv("../data/processed_spectra/rawspec.csv")
+vnormspec <- read.csv("../data/processed_spectra/vnormspec.csv")
+deriv2spec <- read.csv("../data/processed_spectra/deriv2spec.csv")
+
+cwt2 <- read.csv("../data/processed_spectra/cwtspec_scale2.csv") %>% mutate(scale=2) %>% pivot_longer(!c(filename, scale), names_to="wvl", values_to="val")
+cwt3 <- read.csv("../data/processed_spectra/cwtspec_scale3.csv") %>% mutate(scale=3) %>% pivot_longer(!c(filename, scale), names_to="wvl", values_to="val")
+cwt4 <- read.csv("../data/processed_spectra/cwtspec_scale4.csv") %>% mutate(scale=4) %>% pivot_longer(!c(filename, scale), names_to="wvl", values_to="val")
+cwt5 <- read.csv("../data/processed_spectra/cwtspec_scale5.csv") %>% mutate(scale=5) %>% pivot_longer(!c(filename, scale), names_to="wvl", values_to="val")
+cwt6 <- read.csv("../data/processed_spectra/cwtspec_scale6.csv") %>% mutate(scale=6) %>% pivot_longer(!c(filename, scale), names_to="wvl", values_to="val")
+
+cwt10 <- read.csv("../data/processed_spectra/cwtspec_scale10.csv") %>% mutate(scale=6) %>% pivot_longer(!c(filename, scale), names_to="wvl", values_to="val")
+
+cwt <- cwt2 %>% rbind(cwt3) %>% rbind(cwt4) %>% rbind(cwt5) %>% rbind(cwt6)
+cwt <- cwt %>% mutate(val=as.numeric(val))
+cwt <- cwt %>% group_by(filename, wvl) %>% summarise_at("val", .funs=list(sum)) %>% ungroup()
+cwt <- cwt %>% pivot_wider(names_from=wvl, values_from=val)
+
+
+
+rs <- rawspec %>% pivot_longer(!sample_name, names_to="wvl", values_to="val")
+rs$label <- sapply(rs$sample_name, function(x) unlist(meta[meta$filename == x, "scientificName"])[1])
+
+vs <- vnormspec %>% dplyr::select(!normalization_magnitude) %>% pivot_longer(!sample_name, names_to="wvl", values_to="val")
+vs$label <- sapply(vs$sample_name, function(x) unlist(meta[meta$filename == x, "scientificName"])[1])
+
+cwt2s <- cwt2
+cwt2s$label <- sapply(cwt2s$filename, function(x) unlist(meta[meta$filename == x, "scientificName"])[1])
+
+cwt10s <- cwt10
+cwt10s$label <- sapply(cwt10s$filename, function(x) unlist(meta[meta$filename == x, "scientificName"])[1])
+
+
+rs <- rs %>% filter(label %in% c("Acer spicatum", "Acer rubrum", "Acer saccharinum"))
+vs <- vs %>% filter(label %in% c("Acer spicatum", "Acer rubrum", "Acer saccharinum"))
+cwt2s <- cwt2s %>% filter(label %in% c("Acer spicatum", "Acer rubrum", "Acer saccharinum"))
+cwt10s <- cwt10s %>% filter(label %in% c("Acer spicatum", "Acer rubrum", "Acer saccharinum"))
+
+rs <- rs %>% mutate(val=as.numeric(val)) %>% group_by(label, wvl) %>% summarise_at(vars(val), .funs=list(mean_val=mean, sd_val=sd)) %>% ungroup()
+vs <- vs %>% mutate(val=as.numeric(val)) %>% group_by(label, wvl) %>% summarise_at(vars(val), .funs=list(mean_val=mean, sd_val=sd)) %>% ungroup()
+cwt2s <- cwt2s %>% mutate(val=as.numeric(val)) %>% group_by(label, wvl) %>% summarise_at(vars(val), .funs=list(mean_val=mean, sd_val=sd)) %>% ungroup()
+cwt10s <- cwt10s %>% mutate(val=as.numeric(val)) %>% group_by(label, wvl) %>% summarise_at(vars(val), .funs=list(mean_val=mean, sd_val=sd)) %>% ungroup()
+
+
+rs <- rs %>% mutate(wvl=as.numeric(str_replace(wvl, "X", "")))
+vs <- vs %>% mutate(wvl=as.numeric(str_replace(wvl, "X", "")))
+cwt2s <- cwt2s %>% mutate(wvl=as.numeric(str_replace(wvl, "X", "")))
+cwt10s <- cwt10s %>% mutate(wvl=as.numeric(str_replace(wvl, "X", "")))
+
+
+g1 <- ggplot(rs, aes(x=wvl, y=mean_val, group=label)) +
+  geom_ribbon(aes(ymax=mean_val+sd_val, ymin=mean_val-sd_val, fill=label), alpha=0.3) +
+  geom_line(aes(color=label), lwd=1) +
+  theme_bw() +
+  theme(legend.position="right")
+
+g2 <- ggplot(vs, aes(x=wvl, y=mean_val, group=label)) +
+  geom_ribbon(aes(ymax=mean_val+sd_val, ymin=mean_val-sd_val, fill=label), alpha=0.3) +
+  geom_line(aes(color=label), lwd=1) +
+  theme_bw()+
+  theme(legend.position="none")
+
+g3 <- ggplot(cwt2s, aes(x=wvl, y=mean_val, group=label)) +
+  geom_ribbon(aes(ymax=mean_val+sd_val, ymin=mean_val-sd_val, fill=label), alpha=0.3) +
+  geom_line(aes(color=label), lwd=1) +
+  theme_bw()+
+  theme(legend.position="none")
+  
+g4 <- ggplot(cwt10s, aes(x=wvl, y=mean_val, group=label)) +
+  geom_ribbon(aes(ymax=mean_val+sd_val, ymin=mean_val-sd_val, fill=label), alpha=0.3) +
+  geom_line(aes(color=label), lwd=1) +
+  theme_bw()+
+  theme(legend.position="none")
+
+gridExtra::grid.arrange(grobs=list(g1, g2, g3, g4), ncol=2)
+
+
+
+
+print(deriv2spec)
+
+
+meta.test <- read.csv("../data/metadata_test.csv")
+meta.train <- read.csv("../data/metadata_train.csv")
+
+raw.test <- rawspec %>% filter(sample_name %in% meta.test$filename)
+raw.train <- rawspec %>% filter(sample_name %in% meta.train$filename)
+
+vnorm.test <- vnormspec %>% filter(sample_name %in% meta.test$filename)
+vnorm.train <- vnormspec %>% filter(sample_name %in% meta.train$filename)
+
+#deriv2.test <- deriv2spec %>% filter(sample_name %in% meta.test$filename)
+#deriv2.train <- deriv2spec %>% filter(sample_name %in% meta.train$filename)
+
+cwt.test <- cwt %>% filter(filename %in% meta.test$filename)
+cwt.train <- cwt %>% filter(filename %in% meta.train$filename)
+
+```
+
+```{r}
+# define function for LDA models
+run_lda_model <- function(spec.df, spec.meta) {
+  # add labels to dataframe
+  spec.df <- spec.df %>% left_join(spec.meta, by=join_by(sample_name == filename))
+  colnames(spec.df) <- str_replace(colnames(spec.df), "^X", "")
+  spec.df <- spec.df %>% dplyr::select(scientificName, as.character(wvl))
+
+  spec.df <- na.omit(spec.df)
+
+  # 50 segments, 80% specimens randomly selected
+  samples <- seq(1, nrow(spec.df))
+  training_list <- list()
+  for (x in 1:50) {
+    set.seed(x)
+    rndid <- runif(n=0.8*length(samples), min=1, max=length(samples))
+    training_list[[x]] <- spec.df[rndid, ]
+  }
+
+
+  # 10-fold CV
+  ctrl <- trainControl(method = "cv", number = 10)
+
+  # train model
+  mods <- list()
+  for (x in 1:length(training_list)) {
+    currdf <- training_list[[x]]
+    mod <- train(scientificName ~ .,
+            data=currdf, method="lda",
+            metric="Accuracy", trControl=ctrl, preProcess = NULL)
+
+    mods[[x]] <- mod
+  }
+
+
+  return(mods)
+}
+
+```
+
+```{r}
+# run LDA models
+
+print("raw")
+raw.lda.mods <- run_lda_model(raw.train, meta.train)
+print("raw done")
+
+print("vnorm")
+vnorm.lda.mods <- run_lda_model(vnorm.train, meta.train)
+print("vnorm done")
+
+print("2nd derivative")
+deriv2.lda.mods <- run_lda_model(deriv2.train, meta.train)
+print("2nd derivative done")
+```
+
+```{r}
+# function to export coefficients
+library(data.table)
+
+lda_coefficients <- function(models) {
+  # Number of models (iterations)
+  iterations <- length(models)
+
+  # Extract coefficients for each model
+  coefficients <- data.frame()
+  for (x in 1:iterations) {
+    coef <- as.data.frame(models[[x]]$finalModel$scaling)
+    coef$wvl <- row.names(coef)
+    coef$iteration <- x
+    coefficients <- rbind(coefficients, coef)
+  }
+
+  colnames(coefficients) <- c("LD1", "LD2", "LD3", "LD4", "LD5", "LD6", "LD7", "LD8", "wvl", "iteration")
+
+  # Return the combined coefficients table
+  return(coefficients)
+}
+```
+
+```{r}
+print("raw")
+raw.lda.coef <- lda_coefficients(raw.lda.mods)
+print("raw done")
+
+print("\nvnorm")
+vnorm.lda.coef <- lda_coefficients(vnorm.lda.mods)
+print("vnorm done")
+
+print("\n2nd derivative")
+deriv2.lda.coef <- lda_coefficients(deriv2.lda.mods)
+print("2nd derivative done")
+
+
+write.csv(raw.lda.coef, "coefs.lda.raw.csv", quote=F, row.names=F)
+write.csv(vnorm.lda.coef, "coefs.lda.vnorm.csv", quote=F, row.names=F)
+write.csv(deriv2.lda.coef, "coefs.lda.deriv2.csv", quote=F, row.names=F)
+```
+
+```{r}
+# get LDA predictions
+
+#print(head(raw.test[, 1:10]))
+raw.preds <- predict(raw.lda.mods, raw.test)
+raw.preds <- lapply(raw.preds, FUN=function(x) x$class)
+
+print(raw.preds)
+```
+
+```{r}
+# define functions for PLS-DA model tuning and training
+
+tune_plsda_model <- function(spec.df, spec.meta, ncomp.max) {
+
+  print("tuning start")
+
+  # add labels to dataframe
+  spec.df <- spec.df %>% left_join(spec.meta, by=join_by(sample_name == filename))
+  colnames(spec.df) <- str_replace(colnames(spec.df), "^X", "")
+  spec.df <- spec.df %>% dplyr::select(scientificName, as.character(wvl))
+
+  spec.df <- na.omit(spec.df)
+
+  # 50 segments, 80% specimens randomly selected
+  samples <- seq(1, nrow(spec.df))
+  training_list <- list()
+  for (x in 1:10) {
+    set.seed(x)
+    rndid <- runif(n=ceiling(0.8*length(samples)), min=1, max=length(samples))
+    training_list[[x]] <- spec.df[names(table(as.integer(rndid))), ]
+  }
+
+
+  ### LOOCV
+  #ctrl <- trainControl(method="LOOCV", p=0.9, search="grid",
+  #                    summaryFunction=multiClassSummary)
+  ctrl <- trainControl(method="cv", n=10)
+
+  mods <- list()
+  # model fit for grid search
+  
+  #foreach(x=1:length(training_list)) %dopar% {
+  for (x in 1:length(training_list)) {
+    print(paste("tuning iteration", x))
+    trainset <- training_list[[x]]
+    trainclass <- as.factor(unlist(trainset$scientificName))
+    trainset <- trainset[, -c(1)]
+    plsFit <- train(trainset,
+                    trainclass,
+                    method = "pls", tuneLength = ncomp.max,
+                    trControl = ctrl, probMethod="softmax")
+
+    mods[[paste(x)]] <- plsFit
+    print(paste(x, "done!"))
+  }
+
+  return(mods)
+}
+
+
+
+fit_plsda_model <- function(spec.df, spec.meta, ncomp) {
+  print("fitting start")
+
+  # add labels to dataframe
+  spec.df <- spec.df %>% left_join(spec.meta, by=join_by(sample_name == filename))
+  colnames(spec.df) <- str_replace(colnames(spec.df), "^X", "")
+  spec.df <- spec.df %>% dplyr::select(scientificName, as.character(wvl))
+
+  spec.df <- na.omit(spec.df)
+
+  # 50 segments, 80% specimens randomly selected
+  samples <- seq(1, nrow(spec.df))
+  training_list <- list()
+  for (x in 1:50) {
+    set.seed(x)
+    rndid <- runif(n=ceiling(0.8*length(samples)), min=1, max=length(samples))
+    training_list[[x]] <- spec.df[names(table(as.integer(rndid))), ]
+  }
+
+  ctrl <- trainControl(method="cv", n=10)
+
+  # final models fit
+  finmods <- list()
+  
+  currncomp <- ncomp
+
+  for (x in 1:length(training_list)) {
+    trainset <- training_list[[x]]
+    trainclass <- as.factor(unlist(trainset$scientificName))
+    trainset <- trainset[, -c(1)]
+
+    finalModel <- plsda(trainset, trainclass, ncomp=as.numeric(currncomp), trControl=ctrl, probMethod="softmax")
+
+    finmods[[paste(x)]] <- finalModel
+  }
+
+
+  print("fitting done")
+  return(finmods)
+}
+
+
+spec.df=cwt.train
+spec.meta=meta.test
+
+predict_plsda_model <- function(finmods, spec.df, spec.meta) {
+
+  print("predict start")
+
+  # add labels to dataframe
+  spec.df <- spec.df %>% left_join(spec.meta, by=join_by(sample_name == filename))
+  colnames(spec.df) <- str_replace(colnames(spec.df), "^X", "")
+  spec.df <- spec.df %>% dplyr::select(scientificName, as.character(wvl))
+
+  spec.df <- na.omit(spec.df)
+
+  classes <- as.factor(spec.df$scientificName)
+
+  probs <- data.frame(matrix(nrow=0, ncol=length(levels(classes))+1))
+  currnames <- names(finmods)
+  for (mod in currnames) {
+    currmod <- finmods[[mod]]
+    currprobs <- predict(currmod,
+      newdata=spec.df %>% dplyr::select(!c(scientificName)),
+      type="prob")
+
+    colnames(currprobs) <- levels(classes)
+
+    currprobs <- as.data.frame(currprobs)
+
+    currprobs <- currprobs %>%
+      mutate(true_id=spec.df$scientificName) %>%
+      pivot_longer(!c(true_id), names_to="pred_id", values_to="prob")
+    currprobs$model <- mod
+    probs <- rbind(probs, currprobs)
+    # classes <- predict(currmod,
+    #   newdata=testset %>% dplyr::select(!c(sample_id, taxon)))
+  }
+
+  print("predict done")
+  return(probs)
+}
+
+
+plot_plsda_conf <- function(probs) {
+  
+  probs <- probs %>% mutate(pred_id = str_split_i(pred_id, "[.]", 1))
+  
+  probs <- probs %>% group_by(true_id, model) %>% slice_max(prob) %>% ungroup()
+  
+  probs <- probs %>% mutate(combo=paste0(true_id, ":", pred_id))
+  
+  probs.tab <- table(probs$combo)
+  probs.df <- data.frame(combo=names(probs.tab), counts=unname(probs.tab))
+  probs.df$prop <- probs.df$counts.Freq / 50
+  
+  probs.df <- probs.df %>% mutate(true_id = str_split_i(combo, ":", 1),
+                                  pred_id = str_split_i(combo, ":", 2))
+  
+  # compute accuracy
+  correct <- probs.df %>% dplyr::filter(true_id == pred_id)
+  correct <- sum(correct$counts.Freq)
+  total <- sum(probs.df$counts.Freq)
+  accuracy <- correct / total
+  
+  print(paste("accuracy =", accuracy))
+  
+  g <- ggplot(probs.df, aes(x=pred_id, y=true_id, fill=prop)) +
+    geom_tile() +
+    #geom_text(aes(label=round(prop, digits=2), size=1)) +
+    scale_fill_continuous(palette=c("white", "pink1", "red"), limits=c(0, 1)) +
+    xlab("predicted ID") +
+    ylab("true ID") +
+    theme_bw() +
+    theme(panel.grid=element_blank(), panel.border=element_rect(linewidth=1),
+          axis.text.x=element_text(angle=90, hjust=1, size=8),
+          axis.text.y=element_text(size=8),
+          strip.text.y=element_text(angle=0, size=10),
+          strip.text.x=element_text(size=10),
+          axis.title=element_text(size=10),
+          strip.background=element_blank())
+  
+  return(g)
+}
+
+```
+
+```{r}
+# set up parallelization
+n_cores <- detectCores()
+cluster <- makeCluster(n_cores - 1)
+registerDoParallel(cluster)
+
+# Don't fotget to stop the cluster
+stopCluster(cl = cluster)
+```
+
+```{r}
+# run PLS-DA models
+
+print("raw")
+
+raw.kappa <- tune_plsda_model(spec.df=raw.train, spec.meta=meta.train, ncomp.max=30)
+raw.plsda <- fit_plsda_model(raw.kappa, raw.train, meta.train)
+raw.preds <- predict_plsda_model(raw.plsda, raw.test, meta.test)
+
+
+```
+
+```{r}
+
+print("vnorm")
+
+vnorm.kappa <- tune_plsda_model(spec.df=vnorm.train[, -c(2)], spec.meta=meta.train, ncomp.max=30)
+vnorm.plsda <- fit_plsda_model(vnorm.train[, -c(2)], meta.train, 30)
+vnorm.preds <- predict_plsda_model(finmods=vnorm.plsda, spec.df=vnorm.test[, -c(2)], spec.meta=meta.test)
+vnorm.plsda.fig <- plot_plsda_conf(vnorm.preds)
+
+ggsave("../figs/vnorm_plsda.png", vnorm.plsda.fig, width=5, height=4, units="in")
+
+
+```
+
+```{r}
+print("cwt")
+
+colnames(cwt.train)[1] <- "sample_name"
+
+cwt.kappa <- tune_plsda_model(spec.df=cwt.train, spec.meta=meta.train, ncomp.max=30)
+cwt.plsda <- fit_plsda_model(cwt.train, meta.train, 30)
+cwt.preds <- predict_plsda_model(finmods=cwt.plsda, spec.df=cwt.train, spec.meta=meta.test)
+cwt.plsda.fig <- plot_plsda_conf(cwt.preds)
+
+ggsave("../figs/vnorm_plsda.png", vnorm.plsda.fig, width=5, height=4, units="in")
+```
+
