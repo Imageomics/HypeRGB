@@ -1,0 +1,48 @@
+abstract: >-
+  Unimodal and Multimodal model(s) integrating hyperspectral and RGB image data to classify species ID from herbarium specimens
+authors:
+  given-names: "Brian Sanderson"
+  orcid: "https://orcid.org/0000-0002-0310-0440"
+  given-names: "Cornelius Nichodemus"
+  orcid: "https://orcid.org/0000-0002-6975-7138"
+  given-names: "Jean Allen"
+  orcid: "https://orcid.org/0000-0001-9299-9912"
+  given-names: "Oluwatobi Oso"
+  orcid: "https://orcid.org/0000-0002-4672-0105"
+  given-names: "Carolyn Vroom"
+  orcid: "https://orcid.org/0009-0007-0115-4393"
+  given-names: "Noehmi Huanca-Nunez"
+  orcid: "https://orcid.org/0000-0002-4603-827X"
+  given-names: "Praneeth Reddy Mallupalli"
+  orcid: "https://orcid.org/0009-0000-8056-4292"
+  given-names: "Will Weaver"
+  orcid: "https://orcid.org/0000-0003-0633-5066"
+  given-names: "Felipe Zapata"
+  orcid: "https://orcid.org/0000-0002-9386-0573"
+  given-names: "Aaron Lee"
+  orcid: "https://orcid.org/0000-0002-8474-3594"
+cff-version: 1.2.0
+date-released: "2026-08-18"
+identifiers:
+  - description: "The GitHub release URL of tag 0.1.0."
+    type: url
+    value: "https://github.com/Imageomics/HypeRGB/releases/tag/0.1.0"
+  - description: "The GitHub source tree URL aligned to release tag 0.1.0."
+    type: url
+    value: "https://github.com/Imageomics/HypeRGB/tree/0.1.0"
+keywords:
+  - "imageomics"
+  - "hyperspectral"
+  - "herbarium"
+  - "scalogram"
+references:
+  - type: article
+    title: "Weaver, W. N., and S. A. Smith. 2023. From leaves to labels: Building modular machine learning networks for rapid herbarium specimen analysis with LeafMachine2. Applications in Plant Sciences 11: e11548."
+  - type: article
+    title: "White, D. M., J. Cavender‐Bares, C. C. Davis, J. A. Guzmán Q., S. Kothari, J. M. Robles, and J. E. Meireles. 2026. Seeing herbaria in a new light: leaf reflectance spectroscopy unlocks trait and classification modeling in plant biodiversity collections. New Phytologist 251: 811–829."
+license: "MIT"
+message: "If you find this work helpful in your research, please cite this work and the associated references."
+repository-code: "https://github.com/Imageomics/HypeRGB"
+title: "HypeRGB Specimen Classification"
+version: "0.1.0"
+type: software
