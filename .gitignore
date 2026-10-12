@@ -1,0 +1,19 @@
+# Environments
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+#images
+images/
+*.png
+*.webp
+*.jpg
+*.jpeg
+  
+# Mac System
+.DS_Store
