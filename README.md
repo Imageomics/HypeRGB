@@ -2,3 +2,4 @@ We integrate Hyperspectral (point spectra) and RGB images from herbarium specime
 
 Each branch contains a different data modality (rgb, hyperspectral, scalograms from hyperspectral) and corresponding data utils, models, and evaluation for given data modality.
 
+This work was done as part of FloraPalooza 2026 see https://github.com/Imageomics/FloraPalooza-2026
